@@ -17,15 +17,42 @@ import (
 
 var reImageFamily = regexp.MustCompile(`^[a-z]([-a-z0-9]{0,61}[a-z0-9])?$`)
 
+// Disk initialization params
+// see the disks array: https://cloud.google.com/compute/docs/reference/rest/v1/instances`
+type DiskInitializeParams struct {
+	DiskName                    string            `mapstructure:"diskName"`
+	SourceImage                 string            `mapstructure:"sourceImage"`
+	SizeGB                      string            `mapstructure:"diskSizeGb"`
+	Type                        string            `mapstructure:"diskType"`
+	SourceImageEncryptionRawKey string            `mapstructure:"sourceImageEncryptionKey.rawKey"`
+	Labels                      map[string]string `mapstructure:"labels"`
+	Description                 string            `mapstructure:"description"`
+}
+
+// Disk struct for additional disks
+// see the disks array: https://cloud.google.com/compute/docs/reference/rest/v1/instances`
+type DiskResource struct {
+	Type                 string               `mapstructure:"type"` // default 'PERSISTENT'
+	Mode                 string               `mapstructure:"mode"` // default 'READ_WRITE'
+	Source               string               `mapstructure:"source"`
+	DeviceName           string               `mapstructure:"deviceName"`
+	Boot                 bool                 `mapstructure:"boot"` // default 'false'
+	InitializeParams     DiskInitializeParams `mapstructure:"DiskInitializeParams"`
+	AutoDelete           bool                 `mapstructure:"autoDelete"` // default 'false'
+	Licenses             []string             `mapstructure:"licenses"`
+	Interface            string               `mapstructure:"interface"` // default 'SCSI'
+	GuestOsFeatures      string               `mapstructure:"guestOsFeatures"`
+	DiskEncryptionRawKey string               `mapstructure:"diskEncryptionKey.rawKey"`
+}
+
 // Config is the configuration structure for the GCE builder. It stores
 // both the publicly settable state as well as the privately generated
 // state of the config object.
 type Config struct {
 	common.PackerConfig `mapstructure:",squash"`
 	Comm                communicator.Config `mapstructure:",squash"`
-
-	AccountFile string `mapstructure:"account_file"`
-	ProjectId   string `mapstructure:"project_id"`
+	AccountFile         string              `mapstructure:"account_file"`
+	ProjectId           string              `mapstructure:"project_id"`
 
 	AcceleratorType              string            `mapstructure:"accelerator_type"`
 	AcceleratorCount             int64             `mapstructure:"accelerator_count"`
@@ -34,6 +61,7 @@ type Config struct {
 	DiskName                     string            `mapstructure:"disk_name"`
 	DiskSizeGb                   int64             `mapstructure:"disk_size"`
 	DiskType                     string            `mapstructure:"disk_type"`
+	ExtraDisks                   []DiskResource    `mapstructure:"disks"`
 	ImageName                    string            `mapstructure:"image_name"`
 	ImageDescription             string            `mapstructure:"image_description"`
 	ImageFamily                  string            `mapstructure:"image_family"`
@@ -103,6 +131,40 @@ func NewConfig(raws ...interface{}) (*Config, []string, error) {
 		c.DiskType = "pd-standard"
 	}
 
+	if c.DiskName == "" {
+		c.DiskName = c.InstanceName
+	}
+
+	// The Google builder originally only allowed the user to specify params
+	// for the boot disk, but now users can specify additional disks that will
+	// be preserved after image creation. To be backwards compatible, we take
+	// the original disk params (size, type, image) and use them for the
+	// instance's boot disk. Users specifying other DiskResource blocks will
+	// be appended onto the array of compute.AttachedDisks.
+	disks_block := []*compute.AttachedDisks{
+		{
+			Type:       "PERSISTENT",
+			Mode:       "READ_WRITE",
+			Kind:       "compute#attachedDisk",
+			Boot:       true,
+			AutoDelete: false,
+			InitializeParams: &compute.AttachedDiskInitializeParams{
+				SourceImage: c.Image.SelfLink,
+				DiskSizeGb:  c.DiskSizeGb,
+				DiskType:    fmt.Sprintf("zones/%s/diskTypes/%s", zone.Name, c.DiskType),
+			},
+		},
+	}
+
+	// Append user's extra disks to the compute.AttachedDisk array. Note that
+	// we do not do any validation. The user must be familiar with the GCE
+	// Disk resource (JSON request body) to ensure they are specifying the
+	// correct values. See the JSON request body,
+	// https://cloud.google.com/compute/docs/reference/rest/v1/instances/attachDisk
+	for ed in c.ExtraDisks {
+		disks_block.append(ed)
+	}
+
 	if c.ImageDescription == "" {
 		c.ImageDescription = "Created by Packer"
 	}
@@ -153,10 +215,6 @@ func NewConfig(raws ...interface{}) (*Config, []string, error) {
 
 	if c.InstanceName == "" {
 		c.InstanceName = fmt.Sprintf("packer-%s", uuid.TimeOrderedUUID())
-	}
-
-	if c.DiskName == "" {
-		c.DiskName = c.InstanceName
 	}
 
 	if c.MachineType == "" {

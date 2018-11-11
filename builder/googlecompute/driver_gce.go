@@ -377,6 +377,8 @@ func (d *driverGCE) RunInstance(c *InstanceConfig) (<-chan error, error) {
 	// Create the instance information
 	instance := compute.Instance{
 		Description: c.Description,
+		Disks: disks_block,
+/*
 		Disks: []*compute.AttachedDisk{
 			{
 				Type:       "PERSISTENT",
@@ -391,6 +393,7 @@ func (d *driverGCE) RunInstance(c *InstanceConfig) (<-chan error, error) {
 				},
 			},
 		},
+*/
 		GuestAccelerators: guestAccelerators,
 		Labels:            c.Labels,
 		MachineType:       machineType.SelfLink,
