@@ -374,26 +374,63 @@ func (d *driverGCE) RunInstance(c *InstanceConfig) (<-chan error, error) {
 		serviceAccount.Scopes = c.Scopes
 	}
 
+	// The Google builder originally only allowed the user to specify params
+	// for the boot disk, but now users can specify additional disks that will
+	// be preserved after image creation. To be backwards compatible, we take
+	// the original disk params (size, type, image) and use them for the
+	// instance's boot disk. Users specifying other DiskResource blocks will
+	// be appended onto the array of compute.AttachedDisks.
+	// See https://godoc.org/google.golang.org/api/compute/v1#AttachedDisk
+	disks_block := make([]*compute.AttachedDisk, 16) // boot + 15 extras
+	disks_block[0] = &compute.AttachedDisk{
+		Kind:       "compute#attachedDisk",
+		Type:       "PERSISTENT",
+		Mode:       "READ_WRITE",
+		Boot:       true,
+		AutoDelete: false,
+		InitializeParams: &compute.AttachedDiskInitializeParams{
+			SourceImage: c.Image.SelfLink,
+			DiskSizeGb:  c.DiskSizeGb,
+			DiskType:    fmt.Sprintf("zones/%s/diskTypes/%s", zone.Name, c.DiskType),
+		},
+	}
+
+	// Append user's extra disks to the compute.AttachedDisk array. Note that
+	// we do not do any validation. The user must be familiar with the GCE
+	// Disk resource (JSON request body) to ensure they are specifying the
+	// correct values. See the JSON request body,
+	// https://cloud.google.com/compute/docs/reference/rest/v1/instances/attachDisk
+	disks_idx := 1
+	for _, an_ed := range c.ExtraDisks {
+		disks_block[disks_idx] = &compute.AttachedDisk{
+			Kind:       "compute#attachedDisk",
+			Type:       an_ed.Type,
+			Mode:       an_ed.Mode,
+			AutoDelete: an_ed.AutoDelete,
+			DeviceName: an_ed.DeviceName,
+			Interface:  an_ed.Interface,
+			InitializeParams: &compute.AttachedDiskInitializeParams{
+				//Description: an_ed.InitializeParams.Description,
+				DiskName:    an_ed.InitializeParams.DiskName,
+				SourceImage: an_ed.InitializeParams.SourceImage,
+				DiskSizeGb:  an_ed.InitializeParams.DiskSizeGb,
+				// TODO(erjohnso): allow for both shortname (pd-ssd) and full URL
+				//DiskType:    fmt.Sprintf("zones/%s/diskTypes/%s", zone.Name, an_ed.InitializeParams.DiskType),
+				DiskType:    an_ed.InitializeParams.DiskType,
+				//				Labels:      an_ed.InitializeParams.Labels,
+			},
+			DiskEncryptionKey: &compute.CustomerEncryptionKey{
+				//(BETA)		KmsKeyName:  an_ed.EncryptionKey.KmsKeyName,
+				RawKey: an_ed.EncryptionKey.RawKey,
+			},
+		}
+		disks_idx++
+	}
+
 	// Create the instance information
 	instance := compute.Instance{
 		Description: c.Description,
-		Disks: disks_block,
-/*
-		Disks: []*compute.AttachedDisk{
-			{
-				Type:       "PERSISTENT",
-				Mode:       "READ_WRITE",
-				Kind:       "compute#attachedDisk",
-				Boot:       true,
-				AutoDelete: false,
-				InitializeParams: &compute.AttachedDiskInitializeParams{
-					SourceImage: c.Image.SelfLink,
-					DiskSizeGb:  c.DiskSizeGb,
-					DiskType:    fmt.Sprintf("zones/%s/diskTypes/%s", zone.Name, c.DiskType),
-				},
-			},
-		},
-*/
+		Disks:       disks_block,
 		GuestAccelerators: guestAccelerators,
 		Labels:            c.Labels,
 		MachineType:       machineType.SelfLink,

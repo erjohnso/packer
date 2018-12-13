@@ -65,6 +65,7 @@ type InstanceConfig struct {
 	DisableDefaultServiceAccount bool
 	DiskSizeGb                   int64
 	DiskType                     string
+	ExtraDisks                   []DiskResource
 	Image                        *Image
 	Labels                       map[string]string
 	MachineType                  string

@@ -76,7 +76,6 @@ func getImage(c *Config, d Driver) (*Image, error) {
 func (s *StepCreateInstance) Run(_ context.Context, state multistep.StateBag) multistep.StepAction {
 	c := state.Get("config").(*Config)
 	d := state.Get("driver").(Driver)
-
 	ui := state.Get("ui").(packer.Ui)
 
 	sourceImage, err := getImage(c, d)
@@ -107,6 +106,7 @@ func (s *StepCreateInstance) Run(_ context.Context, state multistep.StateBag) mu
 		DisableDefaultServiceAccount: c.DisableDefaultServiceAccount,
 		DiskSizeGb:                   c.DiskSizeGb,
 		DiskType:                     c.DiskType,
+		ExtraDisks:                   c.ExtraDisks,
 		Image:                        sourceImage,
 		Labels:                       c.Labels,
 		MachineType:                  c.MachineType,

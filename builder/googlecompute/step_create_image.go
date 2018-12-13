@@ -23,6 +23,7 @@ func (s *StepCreateImage) Run(_ context.Context, state multistep.StateBag) multi
 	driver := state.Get("driver").(Driver)
 	ui := state.Get("ui").(packer.Ui)
 
+	ui.Say(fmt.Sprintf("Creating image from disk: '%s'", config.DiskName))
 	if config.PackerForce && config.imageAlreadyExists {
 		ui.Say("Deleting previous image...")
 
